@@ -1,4 +1,4 @@
-# webcrypto-utils-js
+# webcrypto-utils-js（仮公開、実装中）
 
 **A lightweight, dependency-free wrapper for the WebCrypto API, bringing simplified E2EE and Hybrid PQC (ML-KEM & X25519) to the browser.**
 
