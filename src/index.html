@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>webcrypto-utils-js デモ</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+
+        .label {
+            font-weight: bold;
+            color: #34495e;
+            display: block;
+            margin-top: 15px;
+            margin-bottom: 5px;
+        }
+
+        pre {
+            background: #2d3436;
+            color: #dfe6e9;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+            button:hover {
+                background-color: #2980b9;
+            }
+
+            button:disabled {
+                background-color: #bdc3c7;
+                cursor: not-allowed;
+            }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .success {
+            background-color: #dfe6e9;
+            color: #27ae60;
+            border: 1px solid #27ae60;
+        }
+
+        .info {
+            color: #7f8c8d;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>webcrypto-utils-js 動作デモ</h1>
+    <p style="text-align: center;">Hybrid PQC (耐量子暗号) を用いたエンドツーエンド暗号化のシミュレーション</p>
+
+    <div class="card">
+        <span class="label">1. 暗号化したいメッセージを入力してください</span>
+        <input type="text" id="msg-input" value="これは秘密のメッセージです（耐量子ハイブリッド暗号テスト）">
+        <button id="encrypt-btn">鍵ペアを生成して暗号化を実行</button>
+        <div class="info">※ 内部で X25519 と ML-KEM-768 の鍵ペアが生成されます</div>
+    </div>
+
+    <div id="demo-steps" style="display: none;">
+        <div class="card">
+            <span class="label">2. 生成されたあなたの公開鍵 (Base64URL)</span>
+            <div class="info">これを相手に渡すことで、相手はあなたに暗号化メッセージを送れるようになります。</div>
+            <pre id="pubkey-out"></pre>
+
+            <span class="label">3. 生成された暗号化パッケージ (JSON)</span>
+            <div class="info">これが通信路上（サーバー等）を流れるデータです。</div>
+            <pre id="packet-out"></pre>
+            <div class="status-badge success">✓ 暗号化完了 (Forward Secrecy 有効)</div>
+        </div>
+
+        <div class="card">
+            <span class="label">4. 自分の秘密鍵で復号を試みる</span>
+            <button id="decrypt-btn" style="background-color: #27ae60;">復号を実行</button>
+
+            <span class="label">復号された結果:</span>
+            <div id="decrypted-result" style="font-size: 20px; font-weight: bold; color: #c0392b; min-height: 1.5em; padding: 10px; border-bottom: 2px solid #ecf0f1;"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { WebCryptoUtils } from './webcrypto-utils.js';
+
+        const encryptBtn = document.getElementById('encrypt-btn');
+        const decryptBtn = document.getElementById('decrypt-btn');
+        const demoSteps = document.getElementById('demo-steps');
+
+        let myKeyPair = null;
+        let lastEncryptedPackage = null;
+
+        // --- 暗号化フロー ---
+        encryptBtn.addEventListener('click', async () => {
+            try {
+                encryptBtn.disabled = true;
+                encryptBtn.textContent = "処理中...";
+
+                const text = document.getElementById('msg-input').value;
+
+                // 1. 鍵ペアを生成 (Hybridモード)
+                myKeyPair = await WebCryptoUtils.generateKeys('Hybrid');
+
+                // 2. 公開鍵をエクスポート (文字列化)
+                const pubKeyB64 = await WebCryptoUtils.exportPublicKey(myKeyPair);
+                document.getElementById('pubkey-out').textContent = pubKeyB64;
+
+                // 3. 暗号化 (デモのため、自分自身の公開鍵宛に暗号化します)
+                // 内部で「一回使い切りの鍵（エフェメラル鍵）」が生成され、この公開鍵と結合されます
+                lastEncryptedPackage = await WebCryptoUtils.encrypt(text, pubKeyB64, 'Hybrid');
+                document.getElementById('packet-out').textContent = JSON.stringify(lastEncryptedPackage, null, 2);
+
+                demoSteps.style.display = 'block';
+                document.getElementById('decrypted-result').textContent = "";
+
+                // スムーズにスクロール
+                window.scrollTo({ top: demoSteps.offsetTop, behavior: 'smooth' });
+
+            } catch (error) {
+                console.error(error);
+                alert("暗号化中にエラーが発生しました。コンソールを確認してください。");
+            } finally {
+                encryptBtn.disabled = false;
+                encryptBtn.textContent = "鍵ペアを生成して暗号化を実行";
+            }
+        });
+
+        // --- 復号フロー ---
+        decryptBtn.addEventListener('click', async () => {
+            if (!myKeyPair || !lastEncryptedPackage) return;
+
+            try {
+                // 4. 復号の実行
+                // 自分の秘密鍵と、パッケージに含まれるエフェメラル公開鍵を使って共通鍵を再生成します
+                const originalText = await WebCryptoUtils.decrypt(lastEncryptedPackage, myKeyPair, 'Hybrid');
+
+                const resultEl = document.getElementById('decrypted-result');
+                resultEl.textContent = originalText;
+                resultEl.style.color = "#27ae60";
+            } catch (error) {
+                console.error(error);
+                alert("復号に失敗しました。");
+            }
+        });
+    </script>
+</body>
+</html>
