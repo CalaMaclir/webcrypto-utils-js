@@ -15,8 +15,6 @@ export class WebCryptoUtils {
     
     /**
      * 1. 鍵ペアの生成 (X25519 または Hybrid ML-KEM)
-     * @param {string} type 'X25519' | 'Hybrid' (ML-KEM-768 + X25519)
-     * @returns {Promise<Object>} 鍵ペアオブジェクト
      */
     static async generateKeys(type = 'X25519') {
         const isHybrid = type === 'Hybrid';
