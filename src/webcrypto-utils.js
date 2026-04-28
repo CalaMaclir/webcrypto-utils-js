@@ -7,6 +7,21 @@ import { CryptoKX } from './kx.js';
 import { CryptoCipher } from './cipher.js';
 import { Utils } from './utils.js';
 
+// --- バイナリプロトコル用ヘルパー関数 ---
+const PROTOCOL_VER = 1;
+const TYPE_MSG_TEXT = 1;
+
+function writeU32LE(val) {
+    const b = new Uint8Array(4);
+    new DataView(b.buffer).setUint32(0, val >>> 0, true);
+    return b;
+}
+
+function readU32LE(u8, off) {
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    return dv.getUint32(off, true) >>> 0;
+}
+// ----------------------------------------
 /**
  * WebCryptoUtils
  * ブラウザ標準の暗号化を、直感的なAPIで利用するためのメインクラス
@@ -92,6 +107,10 @@ export class WebCryptoUtils {
         const ptBuf = await CryptoCipher.decryptAes(kek, ivU8, new Uint8Array(0), ctU8);
         return Utils.decodeText(new Uint8Array(ptBuf));
     }
+
+    /**
+     * 5. 【追加】複数宛先への暗号化 (Multi-Recipient E2EE)
+     */
     /**
      * 【追加】複数宛先への暗号化 (Multi-Recipient E2EE)
      * 1つのメッセージを1回だけ暗号化し、その復号キー(CEK)を宛先人数分暗号化します。
@@ -148,7 +167,7 @@ export class WebCryptoUtils {
     }
 
     /**
-     * 【追加】複数宛先向けの暗号化パッケージから復号する
+     * 6. 【追加】複数宛先向けの暗号化パッケージから復号する
      * * @param {Object} encryptedPackage encryptForMultipleの戻り値
      * @param {Object} myKeyPair 自分の秘密鍵を含む鍵ペア
      * @param {string} algoName 使用するアルゴリズム ('Hybrid' または 'X25519')
@@ -194,6 +213,91 @@ export class WebCryptoUtils {
         // データ本体の復号
         const payloadBuffer = await CryptoCipher.decryptAes(fileKeyObj, payloadIvU8, fileNonceU8, encryptedPayloadU8);
         return Utils.decodeText(new Uint8Array(payloadBuffer));
+    }
+
+    // ============================================================
+    // バイナリプロトコル (パッキング) 関連メソッド
+    // ============================================================
+
+    /**
+     * 7. 【追加】JSONパッケージをバイナリフレーム(ArrayBuffer)にパッキングする
+     * 構造: [Ver:1][Type:1][Seq:4][Nonce:16][IV:12][EphemPubLen:2][EphemPub: N bytes][CTLen:4][CT]
+     */
+    static pack(encryptedPackage, seq = 0) {
+        const ephemPubU8 = Utils.b64urlDecode(encryptedPackage.ephemeralPub);
+        const nonceU8 = Utils.b64urlDecode(encryptedPackage.nonce);
+        const ivU8 = Utils.b64urlDecode(encryptedPackage.iv);
+        const ctU8 = Utils.b64urlDecode(encryptedPackage.ciphertext);
+
+        const headerLen = 1 + 1 + 4 + 16 + 12 + 2 + ephemPubU8.length + 4;
+        const out = new Uint8Array(headerLen + ctU8.length);
+        let off = 0;
+
+        out[off++] = PROTOCOL_VER;
+        out[off++] = TYPE_MSG_TEXT;
+        out.set(writeU32LE(seq), off); off += 4;
+        out.set(nonceU8, off); off += 16;
+        out.set(ivU8, off); off += 12;
+        new DataView(out.buffer).setUint16(off, ephemPubU8.length, true); off += 2;
+        out.set(ephemPubU8, off); off += ephemPubU8.length;
+        out.set(writeU32LE(ctU8.length), off); off += 4;
+        out.set(ctU8, off);
+
+        return out.buffer; // バイナリとして返却
+    }
+
+    /**
+     * 8. 【追加】バイナリフレームをJSONパッケージにアンパックする
+     */
+    static unpack(arrayBuffer) {
+        const u8 = new Uint8Array(arrayBuffer);
+        const dv = new DataView(arrayBuffer);
+        let off = 0;
+
+        if (u8.length < 40) throw new Error("Frame too short");
+
+        const ver = u8[off++];
+        const type = u8[off++];
+
+        if (ver !== PROTOCOL_VER) throw new Error(`Unsupported Protocol Version: ${ver}`);
+        if (type !== TYPE_MSG_TEXT) throw new Error(`Unsupported Message Type: ${type}`);
+
+        const seq = readU32LE(u8, off); off += 4;
+        const nonceU8 = u8.slice(off, off + 16); off += 16;
+        const ivU8 = u8.slice(off, off + 12); off += 12;
+
+        const ephemLen = dv.getUint16(off, true); off += 2;
+        const ephemPubU8 = u8.slice(off, off + ephemLen); off += ephemLen;
+
+        const ctLen = readU32LE(u8, off); off += 4;
+        const ctU8 = u8.slice(off, off + ctLen);
+
+        return {
+            seq,
+            encryptedPackage: {
+                ephemeralPub: Utils.b64urlEncode(ephemPubU8),
+                nonce: Utils.b64urlEncode(nonceU8),
+                iv: Utils.b64urlEncode(ivU8),
+                ciphertext: Utils.b64urlEncode(ctU8)
+            }
+        };
+    }
+
+    /**
+     * 9. 【追加】暗号化とバイナリパッキングを一度に行う高レイヤーメソッド
+     */
+    static async encryptAndPack(text, recipientPubB64, seq = 0, algoName = 'X25519') {
+        const pkg = await this.encrypt(text, recipientPubB64, algoName);
+        return this.pack(pkg, seq);
+    }
+
+    /**
+     * 10. 【追加】バイナリアンパックと復号を一度に行う高レイヤーメソッド
+     */
+    static async unpackAndDecrypt(arrayBuffer, myKeyPair, algoName = 'X25519') {
+        const unpacked = this.unpack(arrayBuffer);
+        const text = await this.decrypt(unpacked.encryptedPackage, myKeyPair, algoName);
+        return { seq: unpacked.seq, text };
     }
 }
 

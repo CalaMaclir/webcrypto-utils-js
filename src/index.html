@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>webcrypto-utils-js デモ</title>
+    <title>webcrypto-utils-js 統合デモ</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
+            max-width: 900px;
             margin: 20px auto;
             padding: 20px;
             line-height: 1.6;
@@ -15,18 +15,23 @@
             color: #333;
         }
 
-        .card {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-
-        h1 {
+        h1, h2 {
             color: #2c3e50;
             text-align: center;
         }
+
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            border-top: 4px solid #3498db;
+        }
+
+            .card.binary-card {
+                border-top-color: #9b59b6;
+            }
 
         .label {
             font-weight: bold;
@@ -38,161 +43,281 @@
 
         pre {
             background: #2d3436;
-            color: #dfe6e9;
+            color: #a29bfe;
             padding: 15px;
             border-radius: 8px;
             overflow-x: auto;
             font-size: 13px;
             white-space: pre-wrap;
             word-break: break-all;
+            border-left: 4px solid #6c5ce7;
         }
 
-        input[type="text"] {
+        .hex-dump {
+            font-family: 'Courier New', Courier, monospace;
+            color: #00d2d3;
+            letter-spacing: 1px;
+        }
+
+        input[type="text"], input[type="number"] {
             width: 100%;
             padding: 12px;
             border: 1px solid #ddd;
             border-radius: 6px;
             box-sizing: border-box;
             font-size: 16px;
+            margin-bottom: 10px;
         }
 
         button {
             background-color: #3498db;
             color: white;
             border: none;
-            padding: 12px 24px;
+            padding: 10px 20px;
             border-radius: 6px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 15px;
             transition: background 0.3s;
-            width: 100%;
-            margin-top: 10px;
+            margin-right: 10px;
+            margin-bottom: 10px;
         }
 
             button:hover {
                 background-color: #2980b9;
             }
 
-            button:disabled {
-                background-color: #bdc3c7;
-                cursor: not-allowed;
+            button.btn-alice {
+                background-color: #e84393;
             }
 
-        .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
+                button.btn-alice:hover {
+                    background-color: #d63031;
+                }
+
+            button.btn-bob {
+                background-color: #00b894;
+            }
+
+                button.btn-bob:hover {
+                    background-color: #00cec9;
+                }
+
+            button.btn-eve {
+                background-color: #636e72;
+            }
+
+                button.btn-eve:hover {
+                    background-color: #2d3436;
+                }
+
+            button.btn-binary {
+                background-color: #9b59b6;
+            }
+
+                button.btn-binary:hover {
+                    background-color: #8e44ad;
+                }
+
+        .result-box {
+            padding: 10px;
+            border-bottom: 2px solid #ecf0f1;
             font-weight: bold;
+            font-size: 18px;
+            min-height: 1.5em;
             margin-top: 10px;
         }
 
         .success {
-            background-color: #dfe6e9;
             color: #27ae60;
-            border: 1px solid #27ae60;
         }
 
-        .info {
-            color: #7f8c8d;
-            font-size: 14px;
-            margin-top: 5px;
+        .error {
+            color: #c0392b;
         }
     </style>
 </head>
 <body>
 
-    <h1>webcrypto-utils-js 動作デモ</h1>
-    <p style="text-align: center;">Hybrid PQC (耐量子暗号) を用いたエンドツーエンド暗号化のシミュレーション</p>
+    <h1>webcrypto-utils-js デモ</h1>
+    <p style="text-align: center;">公開鍵暗号ライブラリの機能テスト</p>
 
     <div class="card">
-        <span class="label">1. 暗号化したいメッセージを入力してください</span>
-        <input type="text" id="msg-input" value="これは秘密のメッセージです（耐量子ハイブリッド暗号テスト）">
-        <button id="encrypt-btn">鍵ペアを生成して暗号化を実行</button>
-        <div class="info">※ 内部で X25519 と ML-KEM-768 の鍵ペアが生成されます</div>
+        <h2>👥 1. 複数宛先へのグループ暗号化 (Multi-Recipient)</h2>
+        <p style="font-size: 0.9em; color: #666;">1つのメッセージを、AliceとBobの2人だけが復号できるように暗号化します。ファイル本体は1回しか暗号化されないため効率的です。</p>
+
+        <button id="multi-init-btn">👩 Alice と 👨 Bob と 😈 Eve(第三者) の鍵を生成</button>
+        <div id="multi-workspace" style="display: none; margin-top: 20px;">
+            <input type="text" id="multi-msg-input" value="AliceとBobにだけ教える秘密の共有メッセージです。">
+            <button id="multi-encrypt-btn" style="width: 100%;">AliceとBobの2人宛に暗号化を実行</button>
+
+            <span class="label">生成された暗号化パッケージ (JSON)</span>
+            <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">※recipients配列に、2人分の暗号化された共通鍵(CEK)カプセルが入っています。</div>
+            <pre id="multi-packet-out"></pre>
+
+            <span class="label">復号テスト</span>
+            <button id="multi-dec-alice-btn" class="btn-alice">👩 Aliceの鍵で復号</button>
+            <button id="multi-dec-bob-btn" class="btn-bob">👨 Bobの鍵で復号</button>
+            <button id="multi-dec-eve-btn" class="btn-eve">😈 Eve(宛先外)の鍵で復号</button>
+
+            <div id="multi-result" class="result-box"></div>
+        </div>
     </div>
 
-    <div id="demo-steps" style="display: none;">
-        <div class="card">
-            <span class="label">2. 生成されたあなたの公開鍵 (Base64URL)</span>
-            <div class="info">これを相手に渡すことで、相手はあなたに暗号化メッセージを送れるようになります。</div>
-            <pre id="pubkey-out"></pre>
+    <div class="card binary-card">
+        <h2>📦 2. 独自バイナリプロトコルによる通信</h2>
+        <p style="font-size: 0.9em; color: #666;">JSON(Base64)を使わず、固定長ヘッダーを持つバイナリフレームとしてパッキングします。データサイズを約33%削減でき、ストリーミング通信に最適です。</p>
 
-            <span class="label">3. 生成された暗号化パッケージ (JSON)</span>
-            <div class="info">これが通信路上（サーバー等）を流れるデータです。</div>
-            <pre id="packet-out"></pre>
-            <div class="status-badge success">✓ 暗号化完了 (Forward Secrecy 有効)</div>
-        </div>
+        <button id="bin-init-btn" class="btn-binary">🔑 送受信用の共通鍵ペアを生成</button>
+        <div id="bin-workspace" style="display: none; margin-top: 20px;">
+            <div style="display: flex; gap: 10px;">
+                <input type="number" id="bin-seq-input" value="1" style="width: 100px;" placeholder="Seq No.">
+                <input type="text" id="bin-msg-input" value="バイナリフレームとしてパッキングされるメッセージです">
+            </div>
+            <button id="bin-encrypt-btn" class="btn-binary" style="width: 100%;">暗号化してバイナリフレームを生成 (ArrayBuffer)</button>
 
-        <div class="card">
-            <span class="label">4. 自分の秘密鍵で復号を試みる</span>
-            <button id="decrypt-btn" style="background-color: #27ae60;">復号を実行</button>
+            <span class="label">出力されたバイナリデータ (Hex Dump)</span>
+            <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">[Ver:1][Type:1][Seq:4][Nonce:16][IV:12][EphemLen:2][EphemPub:N][CTLen:4][CT]</div>
+            <pre id="bin-packet-out" class="hex-dump"></pre>
 
-            <span class="label">復号された結果:</span>
-            <div id="decrypted-result" style="font-size: 20px; font-weight: bold; color: #c0392b; min-height: 1.5em; padding: 10px; border-bottom: 2px solid #ecf0f1;"></div>
+            <span class="label">バイナリからのアンパックと復号</span>
+            <button id="bin-decrypt-btn" class="btn-binary">バイナリを解析して復号</button>
+            <div id="bin-result" class="result-box"></div>
         </div>
     </div>
 
     <script type="module">
         import { WebCryptoUtils } from './webcrypto-utils.js';
 
-        const encryptBtn = document.getElementById('encrypt-btn');
-        const decryptBtn = document.getElementById('decrypt-btn');
-        const demoSteps = document.getElementById('demo-steps');
+        // ヘルパー: ArrayBufferを16進数ダンプ文字列に変換
+        function toHexDump(buffer) {
+            const u8 = new Uint8Array(buffer);
+            let hex = '';
+            for (let i = 0; i < u8.length; i++) {
+                hex += u8[i].toString(16).padStart(2, '0') + ' ';
+                if ((i + 1) % 16 === 0) hex += '\n';
+            }
+            return hex.trim();
+        }
 
-        let myKeyPair = null;
-        let lastEncryptedPackage = null;
+        // ============================================================
+        // 1. Multi-Recipient デモのロジック
+        // ============================================================
+        let aliceKeys, bobKeys, eveKeys;
+        let multiPackage = null;
 
-        // --- 暗号化フロー ---
-        encryptBtn.addEventListener('click', async () => {
+        document.getElementById('multi-init-btn').addEventListener('click', async (e) => {
+            e.target.disabled = true;
+            e.target.textContent = "鍵ペア生成中 (Hybrid ML-KEM)...";
             try {
-                encryptBtn.disabled = true;
-                encryptBtn.textContent = "処理中...";
+                aliceKeys = await WebCryptoUtils.generateKeys('Hybrid');
+                bobKeys = await WebCryptoUtils.generateKeys('Hybrid');
+                eveKeys = await WebCryptoUtils.generateKeys('Hybrid'); // 宛先に含まれない攻撃者/無関係な人
 
-                const text = document.getElementById('msg-input').value;
-
-                // 1. 鍵ペアを生成 (Hybridモード)
-                myKeyPair = await WebCryptoUtils.generateKeys('Hybrid');
-
-                // 2. 公開鍵をエクスポート (文字列化)
-                const pubKeyB64 = await WebCryptoUtils.exportPublicKey(myKeyPair);
-                document.getElementById('pubkey-out').textContent = pubKeyB64;
-
-                // 3. 暗号化 (デモのため、自分自身の公開鍵宛に暗号化します)
-                // 内部で「一回使い切りの鍵（エフェメラル鍵）」が生成され、この公開鍵と結合されます
-                lastEncryptedPackage = await WebCryptoUtils.encrypt(text, pubKeyB64, 'Hybrid');
-                document.getElementById('packet-out').textContent = JSON.stringify(lastEncryptedPackage, null, 2);
-
-                demoSteps.style.display = 'block';
-                document.getElementById('decrypted-result').textContent = "";
-
-                // スムーズにスクロール
-                window.scrollTo({ top: demoSteps.offsetTop, behavior: 'smooth' });
-
-            } catch (error) {
-                console.error(error);
-                alert("暗号化中にエラーが発生しました。コンソールを確認してください。");
-            } finally {
-                encryptBtn.disabled = false;
-                encryptBtn.textContent = "鍵ペアを生成して暗号化を実行";
+                document.getElementById('multi-workspace').style.display = 'block';
+                e.target.textContent = "✅ 3人の鍵生成完了";
+            } catch (err) {
+                alert("鍵生成エラー: " + err.message);
             }
         });
 
-        // --- 復号フロー ---
-        decryptBtn.addEventListener('click', async () => {
-            if (!myKeyPair || !lastEncryptedPackage) return;
+        document.getElementById('multi-encrypt-btn').addEventListener('click', async () => {
+            const text = document.getElementById('multi-msg-input').value;
+            const alicePub = await WebCryptoUtils.exportPublicKey(aliceKeys);
+            const bobPub = await WebCryptoUtils.exportPublicKey(bobKeys);
 
             try {
-                // 4. 復号の実行
-                // 自分の秘密鍵と、パッケージに含まれるエフェメラル公開鍵を使って共通鍵を再生成します
-                const originalText = await WebCryptoUtils.decrypt(lastEncryptedPackage, myKeyPair, 'Hybrid');
+                // AliceとBobの2人の公開鍵を配列で渡す
+                multiPackage = await WebCryptoUtils.encryptForMultiple(text, [alicePub, bobPub], 'Hybrid');
+                document.getElementById('multi-packet-out').textContent = JSON.stringify(multiPackage, null, 2);
+                document.getElementById('multi-result').textContent = "";
+            } catch (err) {
+                alert("暗号化エラー: " + err.message);
+            }
+        });
 
-                const resultEl = document.getElementById('decrypted-result');
-                resultEl.textContent = originalText;
-                resultEl.style.color = "#27ae60";
-            } catch (error) {
-                console.error(error);
-                alert("復号に失敗しました。");
+        const showResult = (elementId, text, isSuccess) => {
+            const el = document.getElementById(elementId);
+            el.textContent = text;
+            el.className = 'result-box ' + (isSuccess ? 'success' : 'error');
+        };
+
+        document.getElementById('multi-dec-alice-btn').addEventListener('click', async () => {
+            if (!multiPackage) return;
+            try {
+                const text = await WebCryptoUtils.decryptFromMultiple(multiPackage, aliceKeys, 'Hybrid');
+                showResult('multi-result', "👩 Aliceの復号結果: " + text, true);
+            } catch (err) {
+                showResult('multi-result', "👩 Aliceエラー: " + err.message, false);
+            }
+        });
+
+        document.getElementById('multi-dec-bob-btn').addEventListener('click', async () => {
+            if (!multiPackage) return;
+            try {
+                const text = await WebCryptoUtils.decryptFromMultiple(multiPackage, bobKeys, 'Hybrid');
+                showResult('multi-result', "👨 Bobの復号結果: " + text, true);
+            } catch (err) {
+                showResult('multi-result', "👨 Bobエラー: " + err.message, false);
+            }
+        });
+
+        document.getElementById('multi-dec-eve-btn').addEventListener('click', async () => {
+            if (!multiPackage) return;
+            try {
+                // Eveの鍵で無理やり開けようとする
+                const text = await WebCryptoUtils.decryptFromMultiple(multiPackage, eveKeys, 'Hybrid');
+                showResult('multi-result', "😈 Eveの復号結果: " + text, true);
+            } catch (err) {
+                showResult('multi-result', "😈 Eveは復号できませんでした (想定通り): " + err.message, false);
+            }
+        });
+
+        // ============================================================
+        // 2. Binary Protocol デモのロジック
+        // ============================================================
+        let binMyKeys = null;
+        let binMyPub = null;
+        let binaryFrameBuffer = null;
+
+        document.getElementById('bin-init-btn').addEventListener('click', async (e) => {
+            e.target.disabled = true;
+            e.target.textContent = "鍵ペア生成中...";
+            try {
+                binMyKeys = await WebCryptoUtils.generateKeys('Hybrid');
+                binMyPub = await WebCryptoUtils.exportPublicKey(binMyKeys);
+
+                document.getElementById('bin-workspace').style.display = 'block';
+                e.target.textContent = "✅ 鍵生成完了";
+            } catch (err) {
+                alert("鍵生成エラー: " + err.message);
+            }
+        });
+
+        document.getElementById('bin-encrypt-btn').addEventListener('click', async () => {
+            const text = document.getElementById('bin-msg-input').value;
+            const seq = parseInt(document.getElementById('bin-seq-input').value, 10);
+
+            try {
+                // 暗号化とパッキングを同時に実行
+                binaryFrameBuffer = await WebCryptoUtils.encryptAndPack(text, binMyPub, seq, 'Hybrid');
+
+                // バイト列をHex Dump形式で表示
+                document.getElementById('bin-packet-out').textContent = toHexDump(binaryFrameBuffer);
+                document.getElementById('bin-result').textContent = "";
+            } catch (err) {
+                alert("パッキングエラー: " + err.message);
+            }
+        });
+
+        document.getElementById('bin-decrypt-btn').addEventListener('click', async () => {
+            if (!binaryFrameBuffer) return;
+            try {
+                // アンパックと復号を同時に実行
+                const result = await WebCryptoUtils.unpackAndDecrypt(binaryFrameBuffer, binMyKeys, 'Hybrid');
+
+                showResult('bin-result', `✅ 復号成功 [Seq: ${result.seq}] -> ${result.text}`, true);
+            } catch (err) {
+                showResult('bin-result', "❌ 復号エラー: " + err.message, false);
             }
         });
     </script>
